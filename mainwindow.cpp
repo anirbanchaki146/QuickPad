@@ -6,7 +6,11 @@ MainWindow::MainWindow(QWidget *parent)
     , ui(new Ui::MainWindow)
 {
     ui->setupUi(this);
-    this->setCentralWidget(ui->textEditor);
+    this->setCentralWidget(ui->editorTabs);
+
+    int tabIndex = ui->editorTabs->addTab(new QTextEdit, "unsaved*");
+    QWidget* tabWidget = ui->editorTabs->widget(tabIndex);
+    tabWidget->setProperty("filePath", QString());
 }
 
 MainWindow::~MainWindow()
@@ -15,19 +19,45 @@ MainWindow::~MainWindow()
 }
 
 
+void MainWindow::on_editorTabs_tabCloseRequested(int index)
+{
+    auto reply = QMessageBox::question(
+        this, "Save the file...",
+        "You may have unsaved work. Would you like to save these changes?",
+        QMessageBox::Save | QMessageBox::No | QMessageBox::Cancel
+    );
+
+    switch (reply) {
+    case QMessageBox::Save:
+        on_actionSave_triggered();
+        break;
+
+    case QMessageBox::No:
+        break;
+
+    default:
+        return;
+    }
+
+    ui->editorTabs->removeTab(index);
+}
+
+
 void MainWindow::on_actionNew_triggered()
 {
-    filePath.clear();
-    ui->textEditor->setText("");
+    int tabIndex = ui->editorTabs->addTab(new QTextEdit, "unsaved*");
+    QWidget* tabWidget = ui->editorTabs->widget(tabIndex);
+    tabWidget->setProperty("filePath", QString());
 }
 
 
 void MainWindow::on_actionOpen_triggered()
 {
-    QString fileNameStr = QFileDialog::getOpenFileName(this, "Open a File");
+    QString filePath = QFileDialog::getOpenFileName(
+        this, "Open a File"
+    );
 
-    QFile file(fileNameStr);
-    filePath = fileNameStr;
+    QFile file(filePath);
 
     if (!file.open(QIODevice::ReadOnly | QFile::Text)) {
         QMessageBox::warning(this, "Warning", file.errorString());
@@ -35,7 +65,16 @@ void MainWindow::on_actionOpen_triggered()
     }
 
     QTextStream in(&file);
-    ui->textEditor->setText(in.readAll());
+    QTextEdit* textEdit = new QTextEdit;
+
+    textEdit->setText(in.readAll());
+
+    int tabIndex = ui->editorTabs->addTab(textEdit, filePath.section("/",-1,-1));
+    ui->editorTabs->setCurrentIndex(tabIndex);
+
+    QWidget* tabWidget = ui->editorTabs->widget(tabIndex);
+
+    tabWidget->setProperty("filePath", filePath);
 
     file.close();
 }
@@ -43,12 +82,26 @@ void MainWindow::on_actionOpen_triggered()
 
 void MainWindow::on_actionSave_triggered()
 {
-    QString fileNameStr = QFileDialog::getSaveFileName(this, "Save a File");
+    QWidget* currentTab = ui->editorTabs->currentWidget();
 
-    if (fileNameStr.isEmpty()) return;
+    if (currentTab == NULL) {
+        QMessageBox::warning(this, "Warning", "No tab was selected");
+        return;
+    }
 
-    QFile file(fileNameStr);
-    filePath = fileNameStr;
+    QString filePath = currentTab->property("filePath").toString();
+
+    if (filePath.isEmpty()) {
+        QString filePath = QFileDialog::getSaveFileName(
+            this, "Save the File", QString(),
+            tr("Text Document (*.txt);; All files (*.*)"),
+            new QString("Text Document (*.txt)")
+        );
+
+        if (filePath.isEmpty()) return;
+    }
+
+    QFile file(filePath);
 
     if (!file.open(QIODevice::WriteOnly | QFile::Text)) {
         QMessageBox::warning(this, "Warning", file.errorString());
@@ -56,7 +109,19 @@ void MainWindow::on_actionSave_triggered()
     }
 
     QTextStream out(&file);
-    out << ui->textEditor->toPlainText();
+
+    QTextEdit* currentTextEdit =
+    static_cast<QTextEdit*>(currentTab);
+
+    out << currentTextEdit->toPlainText();
+
+    ui->editorTabs
+    ->setTabText(
+        ui->editorTabs->currentIndex(),
+        filePath.section("/",-1,-1)
+    );
+
+    currentTab->setProperty("filePath", filePath);
 
     file.close();
 }
@@ -64,12 +129,24 @@ void MainWindow::on_actionSave_triggered()
 
 void MainWindow::on_actionSave_As_triggered()
 {
-    QString fileNameStr = QFileDialog::getSaveFileName(this, "Save a File");
+    QWidget* currentTab = ui->editorTabs->currentWidget();
 
-    if (fileNameStr.isEmpty()) return;
+    if (currentTab == NULL) {
+        QMessageBox::warning(this, "Warning", "No tab was selected");
+        return;
+    }
 
-    QFile file(fileNameStr);
-    filePath = fileNameStr;
+    QTextEdit* currentTextEdit = static_cast<QTextEdit*>(currentTab);
+
+    QString filePath = QFileDialog::getSaveFileName(
+        this, "Save the File", QString(),
+        tr("Text Document (*.txt);; All files (*.*)"),
+        new QString("Text Document (*.txt)")
+    );
+
+    if (filePath.isEmpty()) return;
+
+    QFile file(filePath);
 
     if (!file.open(QIODevice::WriteOnly | QFile::Text)) {
         QMessageBox::warning(this, "Warning", file.errorString());
@@ -77,13 +154,31 @@ void MainWindow::on_actionSave_As_triggered()
     }
 
     QTextStream out(&file);
-    out << ui->textEditor->toPlainText();
+    out << currentTextEdit->toPlainText();
+
+    ui->editorTabs
+    ->setTabText(
+        ui->editorTabs->currentIndex(),
+        filePath.section("/",-1,-1)
+    );
+
+    currentTab->setProperty("filePath", filePath);
 
     file.close();
 }
 
 void MainWindow::on_actionPrint_triggered()
 {
+    QWidget* currentTab = ui->editorTabs->currentWidget();
+
+    if (currentTab == NULL) {
+        QMessageBox::warning(this, "Warning", "No tab was selected");
+        return;
+    }
+
+    QTextEdit* currentTextEdit =
+    static_cast<QTextEdit*>(currentTab);
+
     QPrinter printer;
     printer.setPrinterName("Printer Name");
     QPrintDialog qDialog(&printer, this);
@@ -93,7 +188,7 @@ void MainWindow::on_actionPrint_triggered()
         return;
     }
 
-    ui->textEditor->print(&printer);
+    currentTextEdit->print(&printer);
 }
 
 void MainWindow::on_actionExit_triggered()
@@ -104,30 +199,79 @@ void MainWindow::on_actionExit_triggered()
 
 void MainWindow::on_actionCut_triggered()
 {
-    ui->textEditor->cut();
+    QWidget* currentTab = ui->editorTabs->currentWidget();
+
+    if (currentTab == NULL) {
+        QMessageBox::warning(this, "Warning", "No tab was selected");
+        return;
+    }
+
+    QTextEdit* currentTextEdit =
+    static_cast<QTextEdit*>(currentTab);
+
+    currentTextEdit->cut();
 }
 
 
 void MainWindow::on_actionCopy_triggered()
 {
-    ui->textEditor->copy();
+    QWidget* currentTab = ui->editorTabs->currentWidget();
+
+    if (currentTab == NULL) {
+        QMessageBox::warning(this, "Warning", "No tab was selected");
+        return;
+    }
+
+    QTextEdit* currentTextEdit =
+    static_cast<QTextEdit*>(currentTab);
+
+    currentTextEdit->copy();
 }
 
 
 void MainWindow::on_actionPaste_triggered()
 {
-    ui->textEditor->paste();
+    QWidget* currentTab = ui->editorTabs->currentWidget();
+
+    if (currentTab == NULL) {
+        QMessageBox::warning(this, "Warning", "No tab was selected");
+        return;
+    }
+
+    QTextEdit* currentTextEdit =
+    static_cast<QTextEdit*>(currentTab);
+
+    currentTextEdit->paste();
 }
 
 
 void MainWindow::on_actionUndo_triggered()
 {
-    ui->textEditor->undo();
+    QWidget* currentTab = ui->editorTabs->currentWidget();
+
+    if (currentTab == NULL) {
+        QMessageBox::warning(this, "Warning", "No tab was selected");
+        return;
+    }
+
+    QTextEdit* currentTextEdit =
+    static_cast<QTextEdit*>(currentTab);
+
+    currentTextEdit->undo();
 }
 
 
 void MainWindow::on_actionRedo_triggered()
 {
-    ui->textEditor->redo();
-}
+    QWidget* currentTab = ui->editorTabs->currentWidget();
 
+    if (currentTab == NULL) {
+        QMessageBox::warning(this, "Warning", "No tab was selected");
+        return;
+    }
+
+    QTextEdit* currentTextEdit =
+    static_cast<QTextEdit*>(currentTab);
+
+    currentTextEdit->redo();
+}

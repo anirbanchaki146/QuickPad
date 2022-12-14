@@ -8,6 +8,7 @@
 #include <QString>
 #include <QPrinter>
 #include <QPrintDialog>
+#include <QTextEdit>
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
@@ -44,9 +45,9 @@ private slots:
 
     void on_actionPrint_triggered();
 
+    void on_editorTabs_tabCloseRequested(int index);
+
 private:
     Ui::MainWindow *ui;
-
-    QString filePath;
 };
 #endif // MAINWINDOW_H
